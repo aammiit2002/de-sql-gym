@@ -45,6 +45,8 @@ main{display:flex;flex:1;min-height:0}
 .sfilters input,.sfilters select{width:100%;background:#0b1016;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:7px 9px;font-size:12.5px;font-family:inherit}
 .sfilters input:focus,.sfilters select:focus{outline:none;border-color:var(--acc)}
 .frow{display:flex;gap:8px}
+.flagfilter{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim);cursor:pointer;padding:2px 1px}
+.flagfilter input{width:auto;accent-color:var(--med)}
 #qlist{overflow:auto;flex:1;padding:4px 0}
 .qgroup{padding:12px 12px 5px;font-size:10.5px;letter-spacing:.9px;text-transform:uppercase;color:var(--dim2);font-weight:700}
 .qitem{padding:8px 12px;border-left:3px solid transparent;cursor:pointer;display:flex;gap:9px;align-items:flex-start}
@@ -53,6 +55,7 @@ main{display:flex;flex:1;min-height:0}
 .qidx{font:11px var(--mono);color:var(--dim2);min-width:20px;padding-top:2px}
 .qmeta{flex:1;min-width:0}
 .qtitle{font-size:13px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qstar{color:var(--med);margin-right:1px}
 .qsub{font-size:10.5px;color:var(--dim2);margin-top:2px;display:flex;gap:7px;align-items:center}
 .dif{font-weight:700;font-size:10px}
 .dif.Easy{color:var(--easy)}.dif.Medium{color:var(--med)}.dif.Hard{color:var(--hard)}
@@ -70,7 +73,11 @@ main{display:flex;flex:1;min-height:0}
 .pane{overflow:auto;flex:1;padding:18px 20px;min-height:0}
 .pane.hide{display:none}
 
-h1.ptitle{font-size:19px;margin:0 0 8px;letter-spacing:-.3px}
+h1.ptitle{font-size:19px;margin:0;letter-spacing:-.3px}
+.ptitlerow{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.flagbtn{background:#1b232e;border:1px solid var(--line);color:var(--dim);padding:5px 11px;border-radius:20px;font-size:12px;white-space:nowrap;flex:0 0 auto}
+.flagbtn:hover{border-color:#38424f;color:var(--txt)}
+.flagbtn.on{background:#2c220f;border-color:var(--med);color:var(--med)}
 .pmeta{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
 .chip{font-size:10.5px;padding:3px 8px;border-radius:20px;background:#1b232e;color:var(--dim);border:1px solid var(--line)}
 .chip.p{background:#2a0f1e;color:var(--acc2);border-color:#4a1932}
@@ -205,6 +212,7 @@ details.hint pre{background:#0b1016;padding:11px;border-radius:6px;overflow:auto
       </div>
       <select id="ftopic"><option value="">All topics</option></select>
       <select id="fco"><option value="">All companies (as tagged by sources)</option></select>
+      <label class="flagfilter"><input type="checkbox" id="fflag"/> ★ Needs review only</label>
     </div>
     <div id="qlist"></div>
   </aside>
@@ -353,7 +361,7 @@ function saveProgress(){
     catch(e){ memFallback = true; }
   },400);
 }
-function rec(id){ if(!PROG[id]) PROG[id]={status:'none',attempts:0,code:'',notes:''}; return PROG[id]; }
+function rec(id){ if(!PROG[id]) PROG[id]={status:'none',attempts:0,code:'',notes:'',flagged:false,peeked:false}; return PROG[id]; }
 
 /* ============ engine ============ */
 let SQL=null, current=null, cm=null;
@@ -439,12 +447,13 @@ function tableHtml(cols, rows, cap){
 }
 
 function renderList(){
-  const s=$('#fsearch').value.toLowerCase(), d=$('#fdiff').value, st=$('#fstat').value, tp=$('#ftopic').value, co=$('#fco').value;
+  const s=$('#fsearch').value.toLowerCase(), d=$('#fdiff').value, st=$('#fstat').value, tp=$('#ftopic').value, co=$('#fco').value, flagOnly=$('#fflag').checked;
   const groups={Easy:[],Medium:[],Hard:[]};
   QUESTIONS.forEach((q,i)=>{
     const r=rec(q.id);
     if(d && q.difficulty!==d) return;
     if(st && r.status!==st) return;
+    if(flagOnly && !r.flagged) return;
     if(tp && !q.topics.includes(tp)) return;
     if(co && q.company!==co) return;
     if(s && !(q.title+' '+q.topics.join(' ')+' '+q.pattern+' '+(q.company||'')).toLowerCase().includes(s)) return;
@@ -460,7 +469,7 @@ function renderList(){
       h+=`<div class="qitem ${current&&current.id===q.id?'active':''}" data-id="${q.id}">
         <div class="tick ${r.status}">${mark}</div>
         <div class="qidx">${String(i+1).padStart(2,'0')}</div>
-        <div class="qmeta"><div class="qtitle">${esc(q.title)}</div>
+        <div class="qmeta"><div class="qtitle">${r.flagged?'<span class="qstar">★</span>':''}${esc(q.title)}</div>
         <div class="qsub"><span class="dif ${q.difficulty}">${q.difficulty}</span><span>${esc(q.pattern)}</span></div></div></div>`;
     });
   });
@@ -480,7 +489,9 @@ function open(id){
   $('#pane-stats').style.display='none';
 
   // description
-  let h=`<h1 class="ptitle">${esc(q.title)}</h1><div class="pmeta">
+  let h=`<div class="ptitlerow"><h1 class="ptitle">${esc(q.title)}</h1>
+    <button class="flagbtn ${r.flagged?'on':''}" id="btnFlag" title="${r.flagged?'Remove from review list':'Mark for review later'}">${r.flagged?'★ Flagged':'☆ Review later'}</button>
+    </div><div class="pmeta">
     <span class="chip dif ${q.difficulty}" style="color:var(--${q.difficulty==='Easy'?'easy':q.difficulty==='Medium'?'med':'hard'})">${q.difficulty}</span>
     <span class="chip p">${esc(q.pattern)}</span>${q.topics.map(t=>`<span class="chip">${esc(t)}</span>`).join('')}
     ${q.ordered?'<span class="chip">order-sensitive</span>':'<span class="chip">order-insensitive</span>'}
@@ -510,6 +521,31 @@ function open(id){
   h+=`<details class="hint sol"><summary>Reference solution &amp; why this gets asked</summary><div class="body">
       <pre>${esc(q.solution)}</pre><p style="margin-top:11px">${md(q.explanation)}</p></div></details>`;
   $('#pane-desc').innerHTML=h;
+
+  function setFlagBtn(){
+    const btn=$('#btnFlag'); if(!btn) return;
+    btn.classList.toggle('on', !!r.flagged);
+    btn.textContent = r.flagged ? '★ Flagged' : '☆ Review later';
+    btn.title = r.flagged ? 'Remove from review list' : 'Mark for review later';
+  }
+  $('#btnFlag').onclick=()=>{
+    r.flagged=!r.flagged;
+    saveProgress();
+    setFlagBtn();
+    renderList();
+  };
+  const solDetails=$('#pane-desc').querySelector('details.sol');
+  if(solDetails){
+    solDetails.addEventListener('toggle',()=>{
+      if(solDetails.open && !r.peeked){
+        r.peeked=true;
+        if(!r.flagged) r.flagged=true;
+        saveProgress();
+        setFlagBtn();
+        renderList();
+      }
+    });
+  }
 
   // schema
   try{
@@ -615,6 +651,7 @@ function showStats(){
   const p=$('#pane-stats'); p.classList.remove('hide'); p.style.display='block';
   const solved=QUESTIONS.filter(q=>rec(q.id).status==='solved');
   const att=QUESTIONS.filter(q=>rec(q.id).status==='attempted');
+  const flagged=QUESTIONS.filter(q=>rec(q.id).flagged);
   const byDiff={}, byTopic={};
   QUESTIONS.forEach(q=>{
     byDiff[q.difficulty]=byDiff[q.difficulty]||{t:0,s:0}; byDiff[q.difficulty].t++;
@@ -628,6 +665,7 @@ function showStats(){
     <div class="card"><b style="color:var(--med)">${att.length}</b><small>In progress</small></div>
     <div class="card"><b>${QUESTIONS.length-solved.length-att.length}</b><small>Untouched</small></div>
     <div class="card"><b>${totalAtt}</b><small>Submissions</small></div>
+    <div class="card"><b style="color:var(--med)">${flagged.length}</b><small>Needs review</small></div>
   </div>
   <h4 style="font-size:11px;letter-spacing:.8px;color:var(--dim2);text-transform:uppercase;margin:0 0 10px">By difficulty</h4>`;
   ['Easy','Medium','Hard'].forEach(k=>{ const d=byDiff[k]||{t:0,s:0};
@@ -681,7 +719,7 @@ function initUI(){
   $('#ftopic').innerHTML='<option value="">All topics</option>'+topics.map(t=>`<option>${t}</option>`).join('');
   const cos=[...new Set(QUESTIONS.map(q=>q.company).filter(Boolean))].sort();
   $('#fco').innerHTML='<option value="">All companies (as tagged by sources)</option>'+cos.map(c=>`<option>${c}</option>`).join('');
-  ['fsearch','fdiff','fstat','ftopic','fco'].forEach(id=>$('#'+id).addEventListener('input',renderList));
+  ['fsearch','fdiff','fstat','ftopic','fco','fflag'].forEach(id=>$('#'+id).addEventListener('input',renderList));
   document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showPane(t.dataset.p));
 
   if(window.CodeMirror){
